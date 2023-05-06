@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "SourceGenerator": {
+      "commandName": "Project",
+      "commandLineArgs": "C:\\Home\\source\\LambdaCalc\\LambdaCalc\\Syntax"
+    }
+  }
+}

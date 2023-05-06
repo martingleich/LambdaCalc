@@ -94,4 +94,22 @@ def ListAny = f => x => x BoolF (h => v => f v BoolT (ListAny f h))
         if (!result.RunResult)
             Assert.Fail(result.ToString());
     }
+    [Theory]
+    [InlineData("ListIsEmpty []", "BoolT")]
+    [InlineData("ListIsEmpty [I]", "BoolF")]
+    [InlineData("ListMap BoolNot []", "ListEmpty")]
+    [InlineData("ListMap BoolNot [BoolT, BoolF]", "[BoolF, BoolT]")]
+    [InlineData("ListAll I []", "BoolT")]
+    [InlineData("ListAll I [BoolT, BoolF]", "BoolF")]
+    [InlineData("ListAll I [BoolT, BoolT]", "BoolT")]
+    [InlineData("ListAny I []", "BoolF")]
+    [InlineData("ListAny I [BoolF, BoolF]", "BoolF")]
+    [InlineData("ListAny I [BoolT, BoolF]", "BoolT")]
+    [InlineData("[[BoolT, BoolT].., BoolF]", "[BoolT, BoolT, BoolF]")]
+    public static void OkayListSyntax(string expected, string actual)
+    {
+        var result = _project.CheckEqual(expected, actual);
+        if (!result.RunResult)
+            Assert.Fail(result.ToString());
+    }
 }

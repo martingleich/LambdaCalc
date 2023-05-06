@@ -44,6 +44,25 @@ namespace Distributions
         public static IDistribution<T> ToUniformDistribution<T>(this IEnumerable<T> values) =>
             values.ToImmutableArray().ToUniformDistribution();
         public static readonly IDistribution<string> UniformLowerCaseLetterString = UnsignedInteger(26).Select(i => ((char)('a' + i)).ToString());
+        public static IDistribution<ImmutableArray<T>> FlattenToImmutable<T>(this IEnumerable<IDistribution<T>> values) => new ImmutableFlattenDistribution<T>(values);
+
+        private class ImmutableFlattenDistribution<T> : IDistribution<ImmutableArray<T>>
+        {
+            private readonly IEnumerable<IDistribution<T>> _values;
+
+            public ImmutableFlattenDistribution(IEnumerable<IDistribution<T>> values)
+            {
+                _values = values;
+            }
+
+            public ImmutableArray<T> Sample(RandomNumberGenerator gen)
+            {
+                var builder = ImmutableArray.CreateBuilder<T>();
+                foreach (var value in _values)
+                    builder.Add(value.Sample(gen));
+                return builder.ToImmutable();
+            }
+        }
 
         private sealed record class SingletonDistribution<T>(T Value) : IDistribution<T>
         {

@@ -1,10 +1,13 @@
 ﻿using LambdaCalc.Syntax;
+using System.Collections.Immutable;
 
 namespace LambdaCalc;
 
-public sealed class AddRequiredParenthesisVisitor : IGreenExpressionSyntax.IVisitor<IGreenExpressionSyntax>
+public sealed class AddRequiredParenthesisVisitor : IGreenExpressionSyntax.IVisitor<IGreenExpressionSyntax>, IGreenListContentHead.IVisitor<IGreenListContentHead>
 {
     public static readonly AddRequiredParenthesisVisitor Instance = new();
+    private static T? VisitNullable<T>(T? value, Func<T, T> map) => value is null ? value : map(value);
+    private static ImmutableArray<T> VisitImmutableArray<T>(ImmutableArray<T> values, Func<T, T> map) => values.Select(map).ToImmutableArray();
     private static GreenParenthesisExpression AddParenthesis(IGreenExpressionSyntax expression) => new(
         new GreenTokenParenthesisOpen(null),
         expression,
@@ -29,6 +32,23 @@ public sealed class AddRequiredParenthesisVisitor : IGreenExpressionSyntax.IVisi
     {
         var newExpr = greenParenthesisExpression.Expression.Accept(this);
         return greenParenthesisExpression.With(greenParenthesisExpression.ParenthesisOpen, newExpr, greenParenthesisExpression.ParenthesisClose);
+    }
+    public IGreenExpressionSyntax Visit(GreenListExpression greenListExpression)
+    {
+        var newContent = VisitNullable(greenListExpression.Content, Visit);
+        return new GreenListExpression(greenListExpression.BracketOpen, newContent, greenListExpression.BracketClose);
+    }
+    public GreenListContentTail Visit(GreenListContentTail tail) =>
+        new GreenListContentTail(tail.Comma, tail.Value.Accept(this));
+    public IGreenListContentHead Visit(GreenListContentHeadAppend append) =>
+        new GreenListContentHeadAppend(append.Value.Accept(this), append.Dots);
+    public IGreenListContentHead Visit(GreenListContentHeadValue value) =>
+        new GreenListContentHeadValue(value.Value.Accept(this));
+    public GreenListContent Visit(GreenListContent content)
+    {
+        var newHead = content.Head.Accept(this);
+        var newRest = VisitImmutableArray(content.Rest, Visit);
+        return new GreenListContent(newHead, newRest);
     }
     public static T Perform<T>(T syntax) where T : IGreenExpressionSyntax => (T)syntax.Accept(Instance);
 }

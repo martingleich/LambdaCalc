@@ -1,5 +1,7 @@
 ﻿using System.Collections.Immutable;
-using System.Reflection.Metadata;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using Common;
 using LambdaCalc.Diagnostics;
 
 namespace LambdaCalc.Syntax;
@@ -12,13 +14,13 @@ public interface IGreenNode
     string Generating { get; }
     IGreenToken LastToken { get; }
     IGreenToken FirstToken { get; }
-    INode GetRed(ISyntax? parent, int offset);
+    //INode GetRed(ISyntax? parent, int offset);
     string ToString();
 }
 public interface IGreenToken : IGreenNode
 {
     IGreenToken? LeadingWhitespace { get; }
-    new IToken GetRed(ISyntax? parent, int offset);
+    IToken GetRed(ISyntax? parent, int offset);
 }
 public interface IGreenTokenWithValue<out T> : IGreenToken
 {
@@ -28,12 +30,12 @@ public interface IGreenTokenWithValue<out T> : IGreenToken
 public interface IGreenSyntax : IGreenNode
 {
     IEnumerable<IGreenNode> Children { get; }
-    new ISyntax GetRed(ISyntax? parent, int offset);
+    //new ISyntax GetRed(ISyntax? parent, int offset);
     int GetLengthAt(int index);
 }
 public interface IGreenExpressionSyntax : IGreenSyntax
 {
-    new IExpressionSyntax GetRed(ISyntax? parent, int offset);
+    IExpressionSyntax GetRed(ISyntax? parent, int offset);
     T Accept<T>(IVisitor<T> visitor);
     T Accept<T, TContext>(IVisitor<T, TContext> visitor, TContext context);
     interface IVisitor<out T>
@@ -42,6 +44,7 @@ public interface IGreenExpressionSyntax : IGreenSyntax
         T Visit(GreenCallExpression greenCallExpression);
         T Visit(GreenLambdaExpression greenLambdaExpression);
         T Visit(GreenParenthesisExpression greenParenthesisExpression);
+        T Visit(GreenListExpression greenListExpression);
     }
     interface IVisitor<out T, in TContext>
     {
@@ -49,6 +52,7 @@ public interface IGreenExpressionSyntax : IGreenSyntax
         T Visit(GreenCallExpression greenCallExpression, TContext context);
         T Visit(GreenLambdaExpression greenLambdaExpression, TContext context);
         T Visit(GreenParenthesisExpression greenParenthesisExpression, TContext context);
+        T Visit(GreenListExpression greenListExpression, TContext context);
     }
 }
 #endregion
@@ -61,7 +65,7 @@ public abstract class AGreenNode : IGreenNode
     public abstract IGreenToken LastToken { get; }
     public abstract IGreenToken FirstToken { get; }
 
-    public abstract INode GetRed(ISyntax? parent, int offset);
+    //public abstract INode GetRed(ISyntax? parent, int offset);
     public override string ToString() => Generating;
 }
 public abstract class AGreenToken : AGreenNode, IGreenToken
@@ -78,7 +82,7 @@ public abstract class AGreenToken : AGreenNode, IGreenToken
     public override IGreenToken LastToken => this;
     public override int Length => (LeadingWhitespace?.Length ?? 0) + OnlyGenerating.Length;
 
-    public override abstract IToken GetRed(ISyntax? parent, int offset);
+    public abstract IToken GetRed(ISyntax? parent, int offset);
 }
 public abstract class AGreenTokenWithValue<T> : AGreenToken, IGreenTokenWithValue<T>
 {
@@ -114,13 +118,13 @@ public abstract class AGreenSyntax : AGreenNode, IGreenSyntax
         throw new ArgumentOutOfRangeException(nameof(index));
     }
 
-    public override abstract ISyntax GetRed(ISyntax? parent, int offset);
+    //public override abstract ISyntax GetRed(ISyntax? parent, int offset);
 }
 public abstract class AGreenExpressionSyntax : AGreenSyntax, IGreenExpressionSyntax
 {
     public abstract T Accept<T>(IGreenExpressionSyntax.IVisitor<T> visitor);
     public abstract T Accept<T, TContext>(IGreenExpressionSyntax.IVisitor<T, TContext> visitor, TContext context);
-    public override abstract IExpressionSyntax GetRed(ISyntax? parent, int offset);
+    public abstract IExpressionSyntax GetRed(ISyntax? parent, int offset);
 }
 #endregion
 
@@ -144,179 +148,41 @@ public sealed class GreenTokenIdentifier : AGreenTokenWithValue<string>
         ? this
         : new GreenTokenIdentifier(value, leadingWhitespace);
 }
-public sealed class GreenTokenParenthesisOpen : AGreenToken
-{
-    public GreenTokenParenthesisOpen(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    public static readonly string FixedGenerating = "(";
-    protected override string OnlyGenerating => FixedGenerating;
-    public override TokenParenthesisOpen GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
-public sealed class GreenTokenParenthesisClose : AGreenToken
-{
-    public GreenTokenParenthesisClose(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    public static readonly string FixedGenerating = ")";
-    protected override string OnlyGenerating => FixedGenerating;
-    public override TokenParenthesisClose GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
-public sealed class GreenTokenDoubleRightArrow : AGreenToken
-{
-    public static readonly GreenTokenDoubleRightArrow Instance = new (default);
-    public GreenTokenDoubleRightArrow(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    public static readonly string FixedGenerating = "=>";
-    protected override string OnlyGenerating => FixedGenerating;
-    public override TokenDoubleRightArrow GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
-public sealed class GreenTokenDef : AGreenToken
-{
-    public GreenTokenDef(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    public static readonly string FixedGenerating = "def";
-    protected override string OnlyGenerating => FixedGenerating;
-    public override TokenDef GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
-public sealed class GreenTokenAssign : AGreenToken
-{
-    public GreenTokenAssign(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    public static readonly string FixedGenerating = "=";
-    protected override string OnlyGenerating => FixedGenerating;
-    public override TokenAssign GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
-public sealed class GreenTokenEndOfFile : AGreenToken
-{
-    public static readonly GreenTokenEndOfFile Instance = new(null);
-    public GreenTokenEndOfFile(IGreenToken? leadingWhitespace) : base(leadingWhitespace) { }
-    protected override string OnlyGenerating => "";
-    public override TokenEndOfFile GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
-}
 #endregion
 
 #region Syntax
-public sealed class GreenVariableExpression : AGreenExpressionSyntax
+public sealed partial class GreenVariableExpression
 {
-    public readonly GreenTokenIdentifier Identifier;
-
-    public static GreenVariableExpression New(string name) => new (new GreenTokenIdentifier(name, null));
-
-    public GreenVariableExpression(GreenTokenIdentifier identifier)
-    {
-        Identifier = identifier ?? throw new ArgumentNullException(nameof(identifier));
-    }
-
-    public override IEnumerable<IGreenNode> Children
-    {
-        get
-        {
-            yield return Identifier;
-        }
-    }
-
-    public override IGreenNode FirstChild => Identifier;
-    public override IGreenNode LastChild => Identifier;
-
-    public override T Accept<T>(IGreenExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public override T Accept<T, TContext>(IGreenExpressionSyntax.IVisitor<T, TContext> visitor, TContext context) => visitor.Visit(this, context);
+    public static readonly GreenVariableExpression ListEmpty = GreenVariableExpression.New("ListEmpty");
+    public static readonly GreenVariableExpression ListHead = GreenVariableExpression.New("ListHead");
+    public static GreenVariableExpression New(string name) => new(new GreenTokenIdentifier(name, null));
     public GreenVariableExpression WithIdentifierValue(string value) =>
         With(Identifier.WithValue(value));
     public GreenVariableExpression With(GreenTokenIdentifier identifier) =>
         ReferenceEquals(identifier, this.Identifier)
             ? this
             : new GreenVariableExpression(identifier);
-    public override VariableExpression GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
 }
-public sealed class GreenCallExpression : AGreenExpressionSyntax, IGreenSyntax
+public sealed partial class GreenCallExpression
 {
-    public readonly IGreenExpressionSyntax Left;
-    public readonly IGreenExpressionSyntax Right;
-
-    public GreenCallExpression(IGreenExpressionSyntax left, IGreenExpressionSyntax right)
-    {
-        Left = left ?? throw new ArgumentNullException(nameof(left));
-        Right = right ?? throw new ArgumentNullException(nameof(right));
-    }
-
-    public override IEnumerable<IGreenExpressionSyntax> Children
-    {
-        get
-        {
-            yield return Left;
-            yield return Right;
-        }
-    }
-    public override IGreenNode FirstChild => Left;
-    public override IGreenNode LastChild => Right;
-    IEnumerable<IGreenNode> IGreenSyntax.Children => Children;
-
-    public override T Accept<T>(IGreenExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public override T Accept<T, TContext>(IGreenExpressionSyntax.IVisitor<T, TContext> visitor, TContext context) => visitor.Visit(this, context);
     public GreenCallExpression With(IGreenExpressionSyntax left, IGreenExpressionSyntax right) =>
         ReferenceEquals(left, this.Left)
         && ReferenceEquals(right, this.Right)
             ? this
             : new GreenCallExpression(left, right);
-    public override CallExpression GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
 }
-public sealed class GreenLambdaExpression : AGreenExpressionSyntax
+public sealed partial class GreenLambdaExpression
 {
-    public readonly GreenTokenIdentifier ParameterName;
-    public readonly GreenTokenDoubleRightArrow DoubleRightArrow;
-    public readonly IGreenExpressionSyntax Expression;
-
-    public GreenLambdaExpression(GreenTokenIdentifier parameterName, GreenTokenDoubleRightArrow doubleRightArrow, IGreenExpressionSyntax expression)
-    {
-        ParameterName = parameterName ?? throw new ArgumentNullException(nameof(parameterName));
-        DoubleRightArrow = doubleRightArrow ?? throw new ArgumentNullException(nameof(doubleRightArrow));
-        Expression = expression ?? throw new ArgumentNullException(nameof(expression));
-    }
-
-    public override IEnumerable<IGreenNode> Children
-    {
-        get
-        {
-            yield return ParameterName;
-            yield return DoubleRightArrow;
-            yield return Expression;
-        }
-    }
-    public override IGreenNode FirstChild => ParameterName;
-    public override IGreenNode LastChild => Expression;
-    public override T Accept<T>(IGreenExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public override T Accept<T, TContext>(IGreenExpressionSyntax.IVisitor<T, TContext> visitor, TContext context) => visitor.Visit(this, context);
-
-    public GreenLambdaExpression WithExpression(IGreenExpressionSyntax expression) => With(ParameterName, DoubleRightArrow, Expression);
+    public GreenLambdaExpression WithExpression(IGreenExpressionSyntax expression) => With(ParameterName, DoubleRightArrow, expression);
     public GreenLambdaExpression With(GreenTokenIdentifier parameterName, GreenTokenDoubleRightArrow doubleRightArrow, IGreenExpressionSyntax expression) =>
         ReferenceEquals(parameterName, this.ParameterName)
         && ReferenceEquals(doubleRightArrow, this.DoubleRightArrow)
         && ReferenceEquals(expression, this.Expression)
             ? this
             : new GreenLambdaExpression(parameterName, doubleRightArrow, expression);
-    public override LambdaExpression GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
 }
-public sealed class GreenParenthesisExpression : AGreenExpressionSyntax
+public sealed partial class GreenParenthesisExpression
 {
-    public readonly GreenTokenParenthesisOpen ParenthesisOpen;
-    public readonly IGreenExpressionSyntax Expression;
-    public readonly GreenTokenParenthesisClose ParenthesisClose;
-
-    public GreenParenthesisExpression(GreenTokenParenthesisOpen parenthesisOpen, IGreenExpressionSyntax expression, GreenTokenParenthesisClose parenthesisClose)
-    {
-        ParenthesisOpen = parenthesisOpen ?? throw new ArgumentNullException(nameof(parenthesisOpen));
-        Expression = expression ?? throw new ArgumentNullException(nameof(expression));
-        ParenthesisClose = parenthesisClose ?? throw new ArgumentNullException(nameof(parenthesisClose));
-    }
-
-    public override IEnumerable<IGreenNode> Children
-    {
-        get
-        {
-            yield return ParenthesisOpen;
-            yield return Expression;
-            yield return ParenthesisClose;
-        }
-    }
-    public override IGreenNode FirstChild => ParenthesisOpen;
-    public override IGreenNode LastChild => ParenthesisClose;
-    public override T Accept<T>(IGreenExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public override T Accept<T, TContext>(IGreenExpressionSyntax.IVisitor<T, TContext> visitor, TContext context) => visitor.Visit(this, context);
-
     public GreenParenthesisExpression WithExpression(IGreenExpressionSyntax expression) =>
         With(ParenthesisOpen, expression, ParenthesisClose);
     public GreenParenthesisExpression With(GreenTokenParenthesisOpen parenthesisOpen, IGreenExpressionSyntax expression, GreenTokenParenthesisClose parenthesisClose) =>
@@ -325,79 +191,86 @@ public sealed class GreenParenthesisExpression : AGreenExpressionSyntax
         && ReferenceEquals(parenthesisClose, this.ParenthesisClose)
             ? this
             : new GreenParenthesisExpression(parenthesisOpen, expression, parenthesisClose);
-    public override ParenthesisExpression GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
 }
-public sealed class GreenDefinitionSyntax : AGreenSyntax
+
+public sealed partial class GreenCallExpression
 {
-    public readonly GreenTokenDef Def;
-    public readonly GreenTokenIdentifier Name;
-    public readonly GreenTokenAssign Assign;
-    public readonly IGreenExpressionSyntax Value;
-
-    public GreenDefinitionSyntax(GreenTokenDef def, GreenTokenIdentifier name, GreenTokenAssign assign, IGreenExpressionSyntax value)
-    {
-        Def = def ?? throw new ArgumentNullException(nameof(def));
-        Name = name ?? throw new ArgumentNullException(nameof(name));
-        Assign = assign ?? throw new ArgumentNullException(nameof(assign));
-        Value = value ?? throw new ArgumentNullException(nameof(value));
-    }
-
-    public override IEnumerable<IGreenNode> Children
-    {
-        get
-        {
-            yield return Def;
-            yield return Name;
-            yield return Assign;
-            yield return Value;
-        }
-    }
-    public override GreenTokenDef FirstChild => Def;
-    public override IGreenExpressionSyntax LastChild => Value;
-    public override DefinitionSyntax GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
+    public static GreenCallExpression New(IGreenExpressionSyntax left, IGreenExpressionSyntax right) => new (left, right);
+    public static GreenCallExpression New(IGreenExpressionSyntax a, IGreenExpressionSyntax b, IGreenExpressionSyntax c) => New(New(a, b), c);
 }
-public sealed class GreenFileSyntax : AGreenSyntax
+public interface IGreenListContentHead : IGreenSyntax
 {
-    public readonly ImmutableArray<GreenDefinitionSyntax> Definitions;
-    public readonly GreenTokenEndOfFile EndOfFile;
-
-    public GreenFileSyntax(ImmutableArray<GreenDefinitionSyntax> definitions, GreenTokenEndOfFile endOfFile)
+    IListContentHead GetRed(ISyntax parent, int offset);
+    IGreenExpressionSyntax Desugared { get; }
+    T Accept<T>(IVisitor<T> visitor);
+    interface IVisitor<T>
     {
-        Definitions = definitions;
-        EndOfFile = endOfFile ?? throw new ArgumentNullException(nameof(endOfFile));
+        T Visit(GreenListContentHeadAppend append);
+        T Visit(GreenListContentHeadValue value);
     }
-
-    public override IEnumerable<IGreenNode> Children => Definitions.Append<IGreenNode>(EndOfFile);
-    public override IGreenNode FirstChild => Definitions.Length > 0 ? Definitions[0] : EndOfFile;
-    public override IGreenNode LastChild => EndOfFile;
-    public override FileSyntax GetRed(ISyntax? parent, int offset) => new(parent, offset, this);
 }
-public sealed class GreenTopLevelExpressionSyntax : AGreenSyntax
+public sealed partial class GreenListContentHeadAppend : IGreenListContentHead
 {
-    public readonly IGreenExpressionSyntax Expression;
-    public readonly GreenTokenEndOfFile EndOfFile;
+    IListContentHead IGreenListContentHead.GetRed(ISyntax parent, int offset) => GetRed(parent, offset);
 
-    public GreenTopLevelExpressionSyntax(IGreenExpressionSyntax expression, GreenTokenEndOfFile endOfFile)
-    {
-        Expression = expression ?? throw new ArgumentNullException(nameof(expression));
-        EndOfFile = endOfFile ?? throw new ArgumentNullException(nameof(endOfFile));
-    }
+    public GreenListContentHeadAppend WithValue(IGreenExpressionSyntax value) =>
+        ReferenceEquals(Value, value)
+        ? this
+        : new GreenListContentHeadAppend(value, Dots);
 
-    public override IEnumerable<IGreenNode> Children
-    {
-        get
-        {
-            yield return Expression;
-            yield return EndOfFile;
-        }
-    }
-
-    public override IGreenNode FirstChild => Expression;
-    public override IGreenNode LastChild => EndOfFile;
-
-    public override TopLevelExpressionSyntax GetRed(ISyntax? parent, int offset) => new (parent, offset, this);
+    public T Accept<T>(IGreenListContentHead.IVisitor<T> visitor) => visitor.Visit(this);
+    public IGreenExpressionSyntax Desugared => this.Value;
 }
+
+public sealed partial class GreenListContentTail
+{
+    public GreenListContentTail WithValue(IGreenExpressionSyntax value) =>
+        ReferenceEquals(Value, value)
+        ? this
+        : new GreenListContentTail(Comma, value);
+}
+public sealed partial class GreenListContentHeadValue : IGreenListContentHead
+{
+    IListContentHead IGreenListContentHead.GetRed(ISyntax parent, int offset) => GetRed(parent, offset);
+
+    public GreenListContentHeadValue WithValue(IGreenExpressionSyntax value) =>
+        ReferenceEquals(Value, value)
+        ? this
+        : new GreenListContentHeadValue(value);
+
+    public T Accept<T>(IGreenListContentHead.IVisitor<T> visitor) => visitor.Visit(this);
+    private static readonly GreenCallExpression ListHeadListEmpty = GreenCallExpression.New(GreenVariableExpression.ListHead, GreenVariableExpression.ListEmpty);
+    public IGreenExpressionSyntax Desugared => GreenCallExpression.New(ListHeadListEmpty, this.Value);
+}
+
+public sealed partial class GreenListContent
+{
+    public IGreenExpressionSyntax Desugared => Rest.Aggregate(this.Head.Desugared, (accum, tail) =>
+        GreenCallExpression.New(GreenVariableExpression.ListHead, accum, tail.Value));
+}
+public sealed partial class GreenListExpression : AGreenExpressionSyntax
+{
+    public IGreenExpressionSyntax Desugared => Content?.Desugared ?? GreenVariableExpression.ListEmpty;
+
+    public GreenListExpression WithContent(GreenListContent newContent) =>
+        ReferenceEquals(newContent, Content)
+        ? this
+        : new GreenListExpression(BracketOpen, newContent, BracketClose);
+}
+
 #endregion
+
+public static class ToTokenListEx
+{
+    public static IEnumerable<IGreenToken> ToTokenList(this IGreenNode self) => self switch
+    {
+        IGreenToken tok => tok.ToTokenList(),
+        IGreenSyntax syntax => syntax.ToTokenList(),
+        _ => throw new InvalidOperationException()
+    };
+    public static IEnumerable<IGreenToken> ToTokenList(this IGreenToken self) => new[] { self };
+    public static IEnumerable<IGreenToken> ToTokenList(this IGreenSyntax self) => self.Children.SelectMany(ToTokenList);
+}
 #endregion
 
 #region Red
@@ -426,7 +299,6 @@ public interface ISyntax : INode
     T Accept<T>(IVisitor<T> visitor);
     interface IVisitor<out T>
     {
-        T Visit(Project project);
         T Visit(VariableExpression variableExpression);
         T Visit(CallExpression callExpression);
         T Visit(LambdaExpression lambdaExpression);
@@ -434,8 +306,19 @@ public interface ISyntax : INode
         T Visit(FileSyntax file);
         T Visit(DefinitionSyntax definition);
         T Accept(TopLevelExpressionSyntax topLevelExpressionSyntax);
+        T Visit(ListContentHeadAppend listContentHeadAppend);
+        T Visit(ListContentHeadValue listContentHeadValue);
+        T Visit(ListContentTail listContentTail);
+        T Visit(ListContent listContent);
+        T Visit(ListExpression listExpression);
+        T Visit(TopLevelExpressionSyntax topLevelExpressionSyntax);
     }
 }
+public interface IRootSyntax : ISyntax
+{
+    Project Project { get; }
+}
+
 public interface IExpressionSyntax : ISyntax
 {
     T Accept<T>(IVisitor<T> visitor);
@@ -446,6 +329,7 @@ public interface IExpressionSyntax : ISyntax
         T Visit(CallExpression callExpression);
         T Visit(LambdaExpression lambdaExpression);
         T Visit(ParenthesisExpression parenthesisExpression);
+        T Visit(ListExpression listExpression);
     }
     interface IVisitor<out T, in TContext>
     {
@@ -453,6 +337,7 @@ public interface IExpressionSyntax : ISyntax
         T Visit(CallExpression callExpression, TContext ctx);
         T Visit(LambdaExpression lambdaExpression, TContext ctx);
         T Visit(ParenthesisExpression parenthesisExpression, TContext ctx);
+        T Visit(ListExpression listExpression, TContext context);
     }
 }
 
@@ -519,303 +404,74 @@ public sealed class TokenIdentifier : ATokenWithValue<string>
     }
     public override GreenTokenIdentifier Green { get; }
 }
-public sealed class TokenParenthesisOpen : AToken
-{
-    public TokenParenthesisOpen(ISyntax? parent, int offset, GreenTokenParenthesisOpen green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenParenthesisOpen Green { get; }
-}
-public sealed class TokenParenthesisClose : AToken
-{
-    public TokenParenthesisClose(ISyntax? parent, int offset, GreenTokenParenthesisClose green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenParenthesisClose Green { get; }
-}
-public sealed class TokenDoubleRightArrow : AToken
-{
-    public TokenDoubleRightArrow(ISyntax? parent, int offset, GreenTokenDoubleRightArrow green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenDoubleRightArrow Green { get; }
-}
-public sealed class TokenDef : AToken
-{
-    public TokenDef(ISyntax? parent, int offset, GreenTokenDef green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenDef Green { get; }
-}
-public sealed class TokenAssign : AToken
-{
-    public TokenAssign(ISyntax? parent, int offset, GreenTokenAssign green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenAssign Green { get; }
-}
-public sealed class TokenEndOfFile : AToken
-{
-    public TokenEndOfFile(ISyntax? parent, int offset, GreenTokenEndOfFile green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-    public override GreenTokenEndOfFile Green { get; }
-}
 #endregion
 #region Syntax
-public sealed class VariableExpression : ASyntax, IExpressionSyntax
+public interface IListContentHead : ISyntax
 {
-    public override GreenVariableExpression Green { get; }
-    private TokenIdentifier? _identifier;
-
-    public VariableExpression(ISyntax? parent, int offset, GreenVariableExpression green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    public TokenIdentifier Identifier => _identifier ??= Green.Identifier.GetRed(this, GetOffsetAt(0));
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T>(IExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T, TContext>(IExpressionSyntax.IVisitor<T, TContext> visitor, TContext ctx) => visitor.Visit(this, ctx);
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return Identifier;
-        }
-    }
+    (IExpressionSyntax? AppendTo, IEnumerable<IExpressionSyntax> Values) GetValues(IEnumerable<IExpressionSyntax> tail);
 }
-public sealed class CallExpression : ASyntax, IExpressionSyntax
+public sealed partial class ListContentHeadAppend : IListContentHead
 {
-    public override GreenCallExpression Green { get; }
-
-    public CallExpression(ISyntax? parent, int offset, GreenCallExpression green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private IExpressionSyntax? _left;
-    public IExpressionSyntax Left => _left ??= Green.Left.GetRed(this, GetOffsetAt(0));
-    private IExpressionSyntax? _right;
-    public IExpressionSyntax Right => _right ??= Green.Right.GetRed(this, GetOffsetAt(1));
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T>(IExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T, TContext>(IExpressionSyntax.IVisitor<T, TContext> visitor, TContext ctx) => visitor.Visit(this, ctx);
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return Left;
-            yield return Right;
-        }
-    }
+    public (IExpressionSyntax? AppendTo, IEnumerable<IExpressionSyntax> Values) GetValues(IEnumerable<IExpressionSyntax> tail) =>
+        (Value, tail);
 }
-public sealed class LambdaExpression : ASyntax, IExpressionSyntax
+public sealed partial class ListContentHeadValue : IListContentHead
 {
-    public override GreenLambdaExpression Green { get; }
-
-    public LambdaExpression(ISyntax? parent, int offset, GreenLambdaExpression green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private TokenIdentifier? _parameterName;
-    public TokenIdentifier ParameterName => _parameterName ??= Green.ParameterName.GetRed(this, GetOffsetAt(0));
-    private TokenDoubleRightArrow? _doubleRightArrow;
-    public TokenDoubleRightArrow DoubleRightArrow => _doubleRightArrow ??= Green.DoubleRightArrow.GetRed(this, GetOffsetAt(1));
-    private IExpressionSyntax? _expression;
-    public IExpressionSyntax Expression => _expression ??= Green.Expression.GetRed(this, GetOffsetAt(2));
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T>(IExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T, TContext>(IExpressionSyntax.IVisitor<T, TContext> visitor, TContext ctx) => visitor.Visit(this, ctx);
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return ParameterName;
-            yield return DoubleRightArrow;
-            yield return Expression;
-        }
-    }
+    public (IExpressionSyntax? AppendTo, IEnumerable<IExpressionSyntax> Values) GetValues(IEnumerable<IExpressionSyntax> tail) =>
+        (null, tail.Prepend(Value));
 }
-public sealed class ParenthesisExpression : ASyntax, IExpressionSyntax
-{
-    public override GreenParenthesisExpression Green { get; }
 
-    public ParenthesisExpression(ISyntax? parent, int offset, GreenParenthesisExpression green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private TokenParenthesisOpen? _parenthesisOpen;
-    public TokenParenthesisOpen ParenthesisOpen => _parenthesisOpen ??= Green.ParenthesisOpen.GetRed(this, GetOffsetAt(0));
-    private IExpressionSyntax? _expression;
-    public IExpressionSyntax Expression => _expression ??= Green.Expression.GetRed(this, GetOffsetAt(1));
-    private TokenParenthesisClose? _parenthesisClose;
-    public TokenParenthesisClose ParenthesisClose => _parenthesisClose ??= Green.ParenthesisClose.GetRed(this, GetOffsetAt(2));
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T>(IExpressionSyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    public T Accept<T, TContext>(IExpressionSyntax.IVisitor<T, TContext> visitor, TContext ctx) => visitor.Visit(this, ctx);
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return ParenthesisOpen;
-            yield return Expression;
-            yield return ParenthesisClose;
-        }
-    }
-}
-public sealed class DefinitionSyntax : ASyntax
-{
-    public override GreenDefinitionSyntax Green { get; }
-
-    public DefinitionSyntax(ISyntax? parent, int offset, GreenDefinitionSyntax green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private TokenDef? _def;
-    public TokenDef Def => _def ??= Green.Def.GetRed(this, GetOffsetAt(0));
-    private TokenIdentifier? _name;
-    public TokenIdentifier Name => _name ??= Green.Name.GetRed(this, GetOffsetAt(1));
-    private TokenAssign? _assign;
-    public TokenAssign Assign => _assign ??= Green.Assign.GetRed(this, GetOffsetAt(2));
-    private IExpressionSyntax? _value;
-    public IExpressionSyntax Value => _value ??= Green.Value.GetRed(this, GetOffsetAt(3));
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return Def;
-            yield return Name;
-            yield return Assign;
-            yield return Value;
-        }
-    }
-}
-public sealed class FileSyntax : ASyntax
-{
-    public override GreenFileSyntax Green { get; }
-
-    public FileSyntax(ISyntax? parent, int offset, GreenFileSyntax green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private ImmutableArray<DefinitionSyntax> _definitions;
-    public ImmutableArray<DefinitionSyntax> Definitions
-    {
-        get
-        {
-            if (_definitions == null)
-                _definitions = Green.Definitions.Select((g, i) => g.GetRed(this, GetOffsetAt(i))).ToImmutableArray();
-            return _definitions;
-        }
-    }
-    private TokenEndOfFile? _endOfFile;
-    public TokenEndOfFile EndOfFile => _endOfFile ??= Green.EndOfFile.GetRed(this, GetOffsetAt(Green.Definitions.Length));
-
-    public override IEnumerable<INode> Children => Definitions.Append<INode>(EndOfFile);
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-}
-public sealed class TopLevelExpressionSyntax : ASyntax
-{
-    public TopLevelExpressionSyntax(ISyntax? parent, int offset, GreenTopLevelExpressionSyntax green) : base(parent, offset)
-    {
-        Green = green ?? throw new ArgumentNullException(nameof(green));
-    }
-
-    private IExpressionSyntax? _expression;
-    public IExpressionSyntax Expression => _expression ??= Green.Expression.GetRed(this, GetOffsetAt(0));
-    public TokenEndOfFile? _endOfFile;
-    public TokenEndOfFile EndOfFile => _endOfFile ??= Green.EndOfFile.GetRed(this, GetOffsetAt(1));
-    public override GreenTopLevelExpressionSyntax Green { get; }
-    public override IEnumerable<INode> Children
-    {
-        get
-        {
-            yield return Expression;
-            yield return EndOfFile;
-        }
-    }
-
-    public override T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Accept(this);
-}
 #endregion
 #endregion
 
-public sealed class Project : IGreenSyntax, ISyntax
+public sealed class Project
 {
-    #region Syntax
-    private readonly GreenFileSyntax GreenFile;
-
-    public int Length => GreenFile.Length;
-    public string Generating => GreenFile.Generating;
-    public IGreenToken LastToken => GreenFile.LastToken;
-    public IGreenToken FirstToken => GreenFile.FirstToken;
-    public ISyntax? Parent => null;
-    public IGreenNode Green => this;
-    public int Offset => 0;
-    public int GetLengthAt(int index) => 0;
-
+    public readonly GreenFileSyntax GreenFile;
     private FileSyntax? _file;
+    public FileSyntax File => _file ??= GreenFile.GetRed(this, 0);
 
-    public FileSyntax File => (_file ??= new FileSyntax(this, Offset, GreenFile));
-    IEnumerable<IGreenNode> IGreenSyntax.Children
-    {
-        get
-        {
-            yield return GreenFile;
-        }
-    }
-    IEnumerable<INode> ISyntax.Children
-    {
-        get
-        {
-            yield return File;
-        }
-    }
+    public readonly GreenFileSyntax GreenSystemFile;
+    private FileSyntax? _systemFile;
+    public FileSyntax SystemFile => _systemFile ??= GreenSystemFile.GetRed(this, 0);
 
-    INode IGreenNode.GetRed(ISyntax? parent, int offset) => this;
-    ISyntax IGreenSyntax.GetRed(ISyntax? parent, int offset) => this;
-
-    public override string ToString() => Generating;
-    public T Accept<T>(ISyntax.IVisitor<T> visitor) => visitor.Visit(this);
-    #endregion
-
-    private Project(GreenFileSyntax greenFile, ImmutableArray<IDiagnostic> parserDiagnostics)
+    private Project(GreenFileSyntax greenFile, GreenFileSyntax greenSystemFile, ImmutableArray<IDiagnostic> parserDiagnostics)
     {
         GreenFile = greenFile ?? throw new ArgumentNullException(nameof(greenFile));
+        GreenSystemFile = greenSystemFile;
         _parserDiagnostics = parserDiagnostics;
     }
 
     private readonly ImmutableArray<IDiagnostic> _parserDiagnostics;
     public static readonly Project Empty = new(
         new GreenFileSyntax(ImmutableArray<GreenDefinitionSyntax>.Empty, GreenTokenEndOfFile.Instance),
+        ParseNoError(@"
+def ListEmpty =           x => y => x
+def ListHead  = h => v => x => y => y h v"),
         ImmutableArray<IDiagnostic>.Empty);
+    private static GreenFileSyntax ParseNoError(string text)
+    {
+        var bag = new DiagnosticsBag();
+        var result = Parser.ParseFile(text, bag);
+        if (bag.Count > 0)
+            throw new ArgumentException(string.Join(Environment.NewLine, bag));
+        return result;
+    }
+
     public Project SetFileText(string text)
     {
         var parserDiagnostics = new DiagnosticsBag();
         var syntax = Parser.ParseFile(text, parserDiagnostics);
-        return new Project(syntax, parserDiagnostics.ToImmutableArray());
+        return new Project(syntax, GreenSystemFile, parserDiagnostics.ToImmutableArray());
     }
 
     // Compiler
-    private readonly CompilerCache _compiler = new ();
+    private CompilerCache? _compiler;
+    private CompilerCache CompilerCache => _compiler ??= new CompilerCache(SystemFile.Definitions[0], SystemFile.Definitions[1]);
     internal IStructural? UnsafeCompile(DefinitionSyntax definition)
     {
         if (HasErrors)
             return null;
-        return _compiler.Compile(definition);
+        return CompilerCache.Compile(definition);
     }
 
     // Errors
@@ -824,7 +480,8 @@ public sealed class Project : IGreenSyntax, ISyntax
     private IEnumerable<IEnumerable<IDiagnostic>> GetAllErrorsBlocks()
     {
         yield return _parserDiagnostics;
-        yield return GetErrors(this);
+        yield return GetErrors(File);
+        yield return GetErrors(SystemFile);
     }
     private IEnumerable<IDiagnostic> GetErrors(INode node)
     {
@@ -847,8 +504,8 @@ public sealed class Project : IGreenSyntax, ISyntax
         var typeDiagnostics = GetErrors(redLeftExpr).Concat(GetErrors(redRightExpr)).ToImmutableArray();
         if (typeDiagnostics.Length > 0)
             return new CheckEqualResult(typeDiagnostics, false);
-        var leftCompiled = new CompiledLambda(_compiler.Compile(redLeftExpr.Expression).Evaluate());
-        var rightCompiled = new CompiledLambda(_compiler.Compile(redRightExpr.Expression).Evaluate());
+        var leftCompiled = new CompiledLambda(CompilerCache.Compile(redLeftExpr.Expression).Evaluate());
+        var rightCompiled = new CompiledLambda(CompilerCache.Compile(redRightExpr.Expression).Evaluate());
         var result = leftCompiled.Equals(rightCompiled);
         return new CheckEqualResult(ImmutableArray<IDiagnostic>.Empty, result);
     }

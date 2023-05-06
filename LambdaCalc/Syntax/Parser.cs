@@ -42,14 +42,9 @@ internal sealed class Parser
         else
             return null;
     }
-    private static bool IsWhitespace(char c)
-    {
-        //return (c >= '\x0009' && c <= '\x000D') || c == '\x0020' || c == '\x0085' || (c >= '\x200E' || c <= '\x200F') || c == '\x2028' || c == '\x2029';
-        return char.IsWhiteSpace(c);
-    }
+    private static bool IsWhitespace(char c) => char.IsWhiteSpace(c);
     private static bool IsIdentifierStart(char c) => char.IsLetter(c);
     private static bool IsIdentifierContinue(char c) => IsIdentifierStart(c) || char.IsDigit(c);
-    private GreenTokenDef? TryMatchDef() => TryMatchWord(GreenTokenDef.FixedGenerating, l => new GreenTokenDef(l));
     private GreenTokenIdentifier? TryMatchIdentifier()
     {
         var backup = Cursor;
@@ -62,7 +57,7 @@ internal sealed class Parser
                 ++Cursor;
         }
         var value = Input[start..Cursor];
-        if (value.Length > 0 && value != GreenTokenDef.FixedGenerating)
+        if (value.Length > 0 && !Keywords.Contains(value))
             return new GreenTokenIdentifier(value, leading);
         else
         {
@@ -72,25 +67,30 @@ internal sealed class Parser
     }
     private GreenTokenIdentifier MatchIdentifier() => TryMatchIdentifier() ?? throw new ParseException(Cursor,"Identifier");
 
-    private T MatchSymbol<T>(string symbol, Func<GreenTokenWhitespace?, T> factory)
+    private T Match<T>(SymbolDefinition<T> def)
     {
-        var backup = Cursor;
+#warning Merge with TryMatch
         var leading = TryMatchWhitespace();
-        int s = 0;
-        while (Cursor < Input.Length && s < symbol.Length && Input[Cursor] == symbol[s])
+        var backup = Cursor;
+        var s = 0;
+        while (Cursor < Input.Length && s < def.Text.Length && Input[Cursor] == def.Text[s])
         {
             ++Cursor;
             ++s;
         }
-        if (s != symbol.Length)
+        if (s != def.Text.Length)
         {
             Cursor = backup;
-            AddParseError(GreenTokenAssign.FixedGenerating);
+            AddParseError(def.Text);
         }
-        return factory(leading);
+        return def.Factory(leading);
     }
+
+    private T? TryMatch<T>(KeywordDefinition<T> def) => TryMatchKeyword(def.Text, def.Factory);
+    private T? TryMatch<T>(SymbolDefinition<T> def) => TryMatchSymbol(def.Text, def.Factory);
     private T? TryMatchSymbol<T>(string symbol, Func<GreenTokenWhitespace?, T> factory)
     {
+#warning Parse whitespace only once.
         var backup = Cursor;
         var leading = TryMatchWhitespace();
         int s = 0;
@@ -109,8 +109,9 @@ internal sealed class Parser
             return default;
         }
     }
-    private T? TryMatchWord<T>(string word, Func<GreenTokenWhitespace?, T> factory)
+    private T? TryMatchKeyword<T>(string word, Func<GreenTokenWhitespace?, T> factory)
     {
+#warning Parse whitespace only once.
         var backup = Cursor;
         var leading = TryMatchWhitespace();
         int s = 0;
@@ -130,10 +131,22 @@ internal sealed class Parser
             return default;
         }
     }
-    private GreenTokenAssign MatchAssign() => MatchSymbol(GreenTokenAssign.FixedGenerating, l => new GreenTokenAssign(l));
-    private GreenTokenParenthesisOpen? TryMatchParenthesisOpen() => TryMatchSymbol(GreenTokenParenthesisOpen.FixedGenerating, l => new GreenTokenParenthesisOpen(l));
-    private GreenTokenDoubleRightArrow? TryMatchDoubleArrowRight() => TryMatchSymbol(GreenTokenDoubleRightArrow.FixedGenerating, l => new GreenTokenDoubleRightArrow(l));
-    private GreenTokenParenthesisClose MatchParenthesisClose() => MatchSymbol(GreenTokenParenthesisClose.FixedGenerating, l => new GreenTokenParenthesisClose(l));
+
+    private record struct SymbolDefinition<T>(string Text, Func<GreenTokenWhitespace?, T> Factory);
+    private readonly static SymbolDefinition<GreenTokenAssign> SymbolAssign = new(GreenTokenAssign.FixedGenerating, GreenTokenAssign.New);
+    private readonly static SymbolDefinition<GreenTokenBracketOpen> SymbolBracketOpen = new(GreenTokenBracketOpen.FixedGenerating, GreenTokenBracketOpen.New);
+    private readonly static SymbolDefinition<GreenTokenBracketClose> SymbolBracketClose = new(GreenTokenBracketClose.FixedGenerating, GreenTokenBracketClose.New);
+    private readonly static SymbolDefinition<GreenTokenDots> SymbolDots = new(GreenTokenDots.FixedGenerating, GreenTokenDots.New);
+    private readonly static SymbolDefinition<GreenTokenComma> SymbolComma = new(GreenTokenComma.FixedGenerating, GreenTokenComma.New);
+    private readonly static SymbolDefinition<GreenTokenDoubleRightArrow> SymbolDoubleRightArrow = new(GreenTokenDoubleRightArrow.FixedGenerating, GreenTokenDoubleRightArrow.New);
+    private readonly static SymbolDefinition<GreenTokenParenthesisOpen> SymbolParenthesisOpen = new(GreenTokenParenthesisOpen.FixedGenerating, GreenTokenParenthesisOpen.New);
+    private readonly static SymbolDefinition<GreenTokenParenthesisClose> SymbolParenthesisClose = new(GreenTokenParenthesisClose.FixedGenerating, GreenTokenParenthesisClose.New);
+    private record struct KeywordDefinition<T>(string Text, Func<GreenTokenWhitespace?, T> Factory);
+    private readonly static KeywordDefinition<GreenTokenDef> KeywordDef = new(GreenTokenDef.FixedGenerating, GreenTokenDef.New);
+    private readonly static HashSet<string> Keywords = new ()
+    {
+        KeywordDef.Text,
+    };
 
     private GreenTokenEndOfFile? TryMatchEndOfFile()
     {
@@ -197,16 +210,16 @@ internal sealed class Parser
     private IGreenExpressionSyntax MatchExpression() => TryMatchExpression() ?? throw new ParseException(Cursor, "Expression");
     private IGreenExpressionSyntax? TryMatchOperand()
     {
-        // Expr = '(' Expr ')' | (Identifier ('=>' Expr)?
-        if (TryMatchParenthesisOpen() is { } parenOpen)
+        // Operand = '(' Expr ')' | (Identifier ('=>' Expr)? | '[' Expr '..'? (',' Expr)* ']'
+        if (TryMatch(SymbolParenthesisOpen) is { } parenOpen)
         {
             var expression = MatchExpression();
-            var parenClose = MatchParenthesisClose();
+            var parenClose = Match(SymbolParenthesisClose);
             return new GreenParenthesisExpression(parenOpen, expression, parenClose);
         }
         else if (TryMatchIdentifier() is { } identifier)
         {
-            if (TryMatchDoubleArrowRight() is { } doubleArrowRight)
+            if (TryMatch(SymbolDoubleRightArrow) is { } doubleArrowRight)
             {
                 var expression = MatchExpression();
                 return new GreenLambdaExpression(identifier, doubleArrowRight, expression);
@@ -216,6 +229,26 @@ internal sealed class Parser
                 return new GreenVariableExpression(identifier);
             }
         }
+        else if (TryMatch(SymbolBracketOpen) is { } bracketOpen)
+        {
+            if (TryMatch(SymbolBracketClose) is { } bracketClose)
+            {
+                return new GreenListExpression(bracketOpen, null, bracketClose);
+            }
+            var expression = MatchExpression();
+            IGreenListContentHead head = TryMatch(SymbolDots) is { } dots
+                ? new GreenListContentHeadAppend(expression, dots)
+                : new GreenListContentHeadValue(expression);
+            var tails = ImmutableArray.CreateBuilder<GreenListContentTail>();
+            while (TryMatch(SymbolComma) is { } comma)
+            {
+                var expression2 = MatchExpression();
+                tails.Add(new GreenListContentTail(comma, expression2));
+            }
+            var bracketClose2 = Match(SymbolBracketClose);
+            var listContent = new GreenListContent(head, tails.ToImmutable());
+            return new GreenListExpression(bracketOpen, listContent, bracketClose2);
+        }
         else
         {
             return null;
@@ -223,10 +256,10 @@ internal sealed class Parser
     }
     private GreenDefinitionSyntax? TryMatchDefinition()
     {
-        if (TryMatchDef() is not { } def)
+        if (TryMatch(KeywordDef) is not { } def)
             return null;
         var name = MatchIdentifier();
-        var assign = MatchAssign();
+        var assign = Match(SymbolAssign);
         var value = MatchExpression();
         return new GreenDefinitionSyntax(def, name, assign, value);
     }

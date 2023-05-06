@@ -1,5 +1,4 @@
 ﻿using System.Collections.Immutable;
-using System.Data;
 
 namespace LambdaCalc.Syntax;
 
@@ -93,6 +92,15 @@ sealed record StructuralLambda(
 
 sealed record StructuralCall(IStructural Left, IStructural Right) : IStructural
 {
+    public static IStructural Create(params IStructural[] args)
+    {
+        if (args.Length == 0)
+            throw new ArgumentException($"Must pass at least on argument.");
+        var result = args[0];
+        for (int i = 1; i < args.Length; ++i)
+            result = new StructuralCall(result, args[i]);
+        return result;
+    }
     public StructuralCall With(IStructural left, IStructural right) =>
         ReferenceEquals(Left, left) && ReferenceEquals(Right, right)
         ? this : this with { Left = left, Right = right };
@@ -140,6 +148,17 @@ sealed class CompilerCache : IExpressionSyntax.IVisitor<IStructural>
     private readonly Dictionary<TokenIdentifier, StructuralParameter> _parameters = new();
     private readonly Dictionary<TokenIdentifier, StructuralParameter> _recursionIdentifiers = new();
     private int NextId = 0;
+
+    private readonly DefinitionSyntax _emptyListSyntax;
+    private readonly DefinitionSyntax _headListSyntax;
+    public IStructural EmptyList => Compile(_emptyListSyntax);
+    public IStructural HeadList => Compile(_headListSyntax);
+
+    public CompilerCache(DefinitionSyntax emptyListSyntax, DefinitionSyntax headListSyntax)
+    {
+        _emptyListSyntax = emptyListSyntax;
+        _headListSyntax = headListSyntax;
+    }
 
     private IStructural GetValue(TokenIdentifier identifier)
     {
@@ -189,4 +208,28 @@ sealed class CompilerCache : IExpressionSyntax.IVisitor<IStructural>
         return new StructuralLambda(self, parameter.Id, expression);
     }
     public IStructural Visit(ParenthesisExpression parenthesisExpression) => parenthesisExpression.Expression.Accept(this);
+
+    public IStructural Visit(ListExpression expression) => expression.Content is { } content ? Visit(content) : EmptyList;
+
+    private IStructural Visit(ListContent content)
+    {
+        var result = Visit(content.Head);
+        foreach (var tail in content.Rest)
+            result = AppendList(result, Visit(tail));
+        return result;
+    }
+
+    private IStructural AppendList(IStructural list, IStructural value) => StructuralCall.Create(HeadList, list, value);
+
+    private IStructural Visit(ListContentTail tail) => tail.Value.Accept(this);
+
+    private IStructural Visit(IListContentHead head)
+    {
+        if (head is ListContentHeadValue headValue)
+            return AppendList(EmptyList, headValue.Value.Accept(this));
+        else if (head is ListContentHeadAppend headAppend)
+            return headAppend.Value.Accept(this);
+        else
+            throw new NotImplementedException();
+    }
 }

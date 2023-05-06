@@ -7,8 +7,8 @@ public static class NodeGetProject
         INode? cur = node;
         while (cur != null)
         {
-            if (cur is Project project)
-                return project;
+            if (cur is IRootSyntax rootSyntax)
+                return rootSyntax.Project;
             cur = cur.Parent;
         }
         return null;
