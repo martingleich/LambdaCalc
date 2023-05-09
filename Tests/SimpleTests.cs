@@ -1,4 +1,25 @@
+using Distributions;
+
 namespace Tests;
+public static class StatisicParserTests
+{
+    [Fact]
+    public static void RandomTest()
+    {
+        var randomExpressions =
+           (from x in ProgramList.CreateInstance().GetStructureLambdaExpressionSyntax(10)
+            select AddRequiredWhitespaceVisitor.Perform(AddRequiredParenthesisVisitor.Perform(x)))
+            .AssignRandomNames(Distribution.UniformLowerCaseLetterString);
+
+        var rnd = Xorshift64.Create(1432543523412);
+        for(int i = 0; i < 1000; ++i)
+        {
+            var txt = randomExpressions.Sample(rnd).ToString();
+            var parsed = Parser.ParseExpression(txt, new LambdaCalc.Diagnostics.DiagnosticsBag());
+            Assert.Equal(txt, parsed.ToString());
+        }
+    }
+}
 
 public static class SimpleTests
 {

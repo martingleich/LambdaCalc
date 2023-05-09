@@ -3,7 +3,7 @@ using System.Collections.Immutable;
 
 namespace LambdaCalc.Syntax;
 
-internal sealed class Parser
+public sealed class Parser
 {
     private readonly string Input;
     private readonly DiagnosticsBag Diagnostics;
@@ -19,6 +19,24 @@ internal sealed class Parser
     {
         Diagnostics.Add(new ParserErrorDiagnostic(Location.FromOffsetLength(Cursor, 0), expected));
     }
+    private bool TryMatchChar(char c) => TryMatchChar(x => x == c);
+    private bool TryMatchChar(Func<char, bool> c)
+    {
+        if (Cursor < Input.Length && c(Input[Cursor]))
+        {
+            ++Cursor;
+            return true;
+        }
+        else
+        {
+            return false;
+        }
+    }
+    private void MatchChars(Func<char, bool> matcher)
+    {
+        while (TryMatchChar(matcher))
+            ;
+    }
     private GreenTokenWhitespace? TryMatchWhitespace()
     {
         int start = Cursor;
@@ -26,16 +44,9 @@ internal sealed class Parser
         do
         {
             roundStart = Cursor;
-            // Any whitespace
-            while (Cursor < Input.Length && IsWhitespace(Input[Cursor]))
-                ++Cursor;
-            // Line comment
-            if (Cursor < Input.Length && Input[Cursor] == '#')
-            {
-                ++Cursor;
-                while (Cursor < Input.Length && Input[Cursor] != '\n')
-                    ++Cursor;
-            }
+            MatchChars(IsWhitespace);
+            if (TryMatchChar('#'))
+                MatchChars(IsNonLineBreak);
         } while (roundStart != Cursor);
         if (start != Cursor)
             return new GreenTokenWhitespace(Input[start..Cursor], null);
@@ -45,17 +56,14 @@ internal sealed class Parser
     private static bool IsWhitespace(char c) => char.IsWhiteSpace(c);
     private static bool IsIdentifierStart(char c) => char.IsLetter(c);
     private static bool IsIdentifierContinue(char c) => IsIdentifierStart(c) || char.IsDigit(c);
+    private static bool IsNonLineBreak(char c) => c != '\n';
     private GreenTokenIdentifier? TryMatchIdentifier()
     {
         var backup = Cursor;
         var leading = TryMatchWhitespace();
         var start = Cursor;
-        if (Cursor < Input.Length && IsIdentifierStart(Input[Cursor]))
-        {
-            ++Cursor;
-            while (Cursor < Input.Length && IsIdentifierContinue(Input[Cursor]))
-                ++Cursor;
-        }
+        if (TryMatchChar(IsIdentifierStart))
+            MatchChars(IsIdentifierContinue);
         var value = Input[start..Cursor];
         if (value.Length > 0 && !Keywords.Contains(value))
             return new GreenTokenIdentifier(value, leading);
@@ -69,21 +77,16 @@ internal sealed class Parser
 
     private T Match<T>(SymbolDefinition<T> def)
     {
-#warning Merge with TryMatch
-        var leading = TryMatchWhitespace();
-        var backup = Cursor;
-        var s = 0;
-        while (Cursor < Input.Length && s < def.Text.Length && Input[Cursor] == def.Text[s])
+        if (TryMatch(def) is { } result)
         {
-            ++Cursor;
-            ++s;
-        }
-        if (s != def.Text.Length)
+            return result;
+        } 
+        else
         {
-            Cursor = backup;
+            var leading = TryMatchWhitespace();
             AddParseError(def.Text);
+            return def.Factory(leading);
         }
-        return def.Factory(leading);
     }
 
     private T? TryMatch<T>(KeywordDefinition<T> def) => TryMatchKeyword(def.Text, def.Factory);
