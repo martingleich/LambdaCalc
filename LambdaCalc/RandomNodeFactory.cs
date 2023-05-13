@@ -1,140 +1,130 @@
 ﻿using Common;
 using Distributions;
 using LambdaCalc.Syntax;
-using System.Collections;
 
 namespace LambdaCalc;
 
-public interface IProgramLists
-{
-    ILargeReadonlyList<GreenLambdaExpression> GetLambdaExpressions(int numNodes);
-    ILargeReadonlyList<GreenCallExpression> GetCallExpressions(int numNodes);
-    ILargeReadonlyList<IGreenExpressionSyntax> GetExpressions(int numNodes);
-    ILargeReadonlyList<GreenDefinitionSyntax> GetDefinitions(int numNodes);
-    ILargeReadonlyList<GreenFileSyntax> GetFiles(int numNodes);
-}
-
 public static class ProgramListExt
 {
-    public static IDistribution<IGreenExpressionSyntax> GetStructureExpressionSyntax(this IProgramLists self, int numTokens) =>
-        self.GetExpressions(numTokens).ToUniformDistribution();
-    public static IDistribution<GreenLambdaExpression> GetStructureLambdaExpressionSyntax(this IProgramLists self, int numTokens) =>
-        self.GetLambdaExpressions(numTokens).ToUniformDistribution();
+    public static IDistribution<IGreenExpressionSyntax> GetStructureExpressionSyntax(this ProgramList self, int numTokens) =>
+        self.GetExpressionSyntax(numTokens).ToUniformDistribution();
+    public static IDistribution<GreenLambdaExpression> GetStructureLambdaExpressionSyntax(this ProgramList self, int numTokens) =>
+        self.GetLambdaExpression(numTokens).ToUniformDistribution();
 }
 
-public sealed class ProgramList : IProgramLists
+public sealed class ProgramList
 {
-    private sealed class Cache : IProgramLists
-    {
-        private readonly IProgramLists Computer;
-        private readonly Dictionary<int, ILargeReadonlyList<GreenCallExpression>> _getCallExpressions = new ();
-        public ILargeReadonlyList<GreenCallExpression> GetCallExpressions(int numNodes)
-        {
-            if (!_getCallExpressions.TryGetValue(numNodes, out var value))
-                _getCallExpressions[numNodes] = value = Computer.GetCallExpressions(numNodes);
-            return value;
-        }
+    private Func<int, ILargeReadonlyList<T>> Memoize<T>(Func<ProgramList, int, ILargeReadonlyList<T>> func) => FunctionalUtils.Memoize<int, ILargeReadonlyList<T>>(arg => func(this, arg));
 
-        private readonly Dictionary<int, ILargeReadonlyList<GreenDefinitionSyntax>> _getDefinitions = new ();
-        public ILargeReadonlyList<GreenDefinitionSyntax> GetDefinitions(int numNodes)
-        {
-            if (!_getDefinitions.TryGetValue(numNodes, out var value))
-                _getDefinitions[numNodes] = value = Computer.GetDefinitions(numNodes);
-            return value;
-        }
-
-        private readonly Dictionary<int, ILargeReadonlyList<IGreenExpressionSyntax>> _getExpressions = new ();
-        public ILargeReadonlyList<IGreenExpressionSyntax> GetExpressions(int numNodes)
-        {
-            if (!_getExpressions.TryGetValue(numNodes, out var value))
-                _getExpressions[numNodes] = value = Computer.GetExpressions(numNodes);
-            return value;
-        }
-
-        private readonly Dictionary<int, ILargeReadonlyList<GreenFileSyntax>> _getFiles = new ();
-        public ILargeReadonlyList<GreenFileSyntax> GetFiles(int numNodes)
-        {
-            if (!_getFiles.TryGetValue(numNodes, out var value))
-                _getFiles[numNodes] = value = Computer.GetFiles(numNodes);
-            return value;
-        }
-
-        private readonly Dictionary<int, ILargeReadonlyList<GreenLambdaExpression>> _getLambdaExpressions = new ();
-
-        public Cache(IProgramLists computer)
-        {
-            Computer = computer ?? throw new ArgumentNullException(nameof(computer));
-        }
-
-        public ILargeReadonlyList<GreenLambdaExpression> GetLambdaExpressions(int numNodes)
-        {
-            if (!_getLambdaExpressions.TryGetValue(numNodes, out var value))
-                _getLambdaExpressions[numNodes] = value = Computer.GetLambdaExpressions(numNodes);
-            return value;
-        }
-        public IReadOnlyList<ILargeReadonlyList<IGreenExpressionSyntax>> GetAllExpressionsLists(int maxNumNodes) =>
-            new AllExpressionsLists(this, maxNumNodes);
-        private sealed class AllExpressionsLists : IReadOnlyList<ILargeReadonlyList<IGreenExpressionSyntax>>
-        {
-            private readonly Cache Cache;
-
-            public AllExpressionsLists(Cache cache, int count)
-            {
-                Cache = cache ?? throw new ArgumentNullException(nameof(cache));
-                Count = count;
-            }
-
-            public int Count { get; }
-            public ILargeReadonlyList<IGreenExpressionSyntax> this[int index] => Cache.GetExpressions(index);
-            public IEnumerator<ILargeReadonlyList<IGreenExpressionSyntax>> GetEnumerator()
-            {
-                for (int i = 0; i < Count; ++i)
-                    yield return this[i];
-            }
-            IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
-        }
-    }
-
-    private readonly Cache _cache;
-    private ProgramList()
-    {
-        _cache = new Cache(this);
-    }
-    public static IProgramLists CreateInstance() => new ProgramList()._cache;
-    private static readonly GreenTokenIdentifier GreenIdentifierX = new("x", null);
-    private static readonly GreenVariableExpression GreenVariableX = new(GreenIdentifierX);
-    private static readonly GreenTokenDoubleRightArrow GreenDoubleRightArrow = new(null);
-    private static readonly GreenTokenDef GreenTokenDef = new(null);
-    private static readonly GreenTokenAssign GreenTokenAssign = new(null);
-    private static readonly ILargeReadonlyList<IGreenExpressionSyntax> AllVariableExpressions = LargeReadonlyList.Singleton<IGreenExpressionSyntax>(GreenVariableX);
-    public ILargeReadonlyList<GreenCallExpression> GetCallExpressions(int numNodes)
-    {
-        var allExpressions = _cache.GetAllExpressionsLists(numNodes - 1);
-        return LargeReadonlyList.CrossSum(numNodes - 1, allExpressions, allExpressions, (left, right) => new GreenCallExpression(left, right));
-    }
-
-    public ILargeReadonlyList<GreenDefinitionSyntax> GetDefinitions(int numNodes) =>
-        _cache.GetExpressions(numNodes - 1)
-        .Select(expr => new GreenDefinitionSyntax(GreenTokenDef, GreenIdentifierX, GreenTokenAssign, expr));
-
-    public ILargeReadonlyList<IGreenExpressionSyntax> GetExpressions(int numNodes)
+    private static ILargeReadonlyList<T?> GetNull<T>(int numNodes)
     {
         if (numNodes == 0)
-            return LargeReadonlyList.Empty<IGreenExpressionSyntax>();
-        else if (numNodes == 1)
-            return AllVariableExpressions;
-        else if (numNodes == 2)
-            return _cache.GetLambdaExpressions(numNodes);
+            return LargeReadonlyList.Singleton<T?>(default);
         else
-            return _cache.GetCallExpressions(numNodes).Concat<IGreenExpressionSyntax>(_cache.GetLambdaExpressions(numNodes));
+            return LargeReadonlyList.Empty<T?>();
     }
 
-    public ILargeReadonlyList<GreenFileSyntax> GetFiles(int numNodes)
+    public ProgramList()
     {
-        throw new NotImplementedException();
-    }
+        GetCallExpression = Memoize((self, numNodes) =>
+        {
+            if (numNodes >= 1)
+                return LargeReadonlyList.CrossSum(numNodes - 1, self.GetExpressionSyntax, self.GetExpressionSyntax, (left, right) => new GreenCallExpression(left, right));
+            else
+                return LargeReadonlyList.Empty<GreenCallExpression>();
+        });
+        GetDefinitionSyntax = Memoize((self, numNodes) =>
+            self.GetExpressionSyntax(numNodes - 3)
+            .Select(expr => new GreenDefinitionSyntax(GreenTokenDef.Instance, GreenIdentifierX, GreenTokenAssign.Instance, expr))
+        );
+        GetExpressionSyntax = Memoize((self, numNodes) =>
+        {
+            var result = LargeReadonlyList.Empty<IGreenExpressionSyntax>();
+            result = result.Concat(self.GetVariableExpression(numNodes));
+            result = result.Concat(self.GetLambdaExpression(numNodes));
+            result = result.Concat(self.GetCallExpression(numNodes));
+            result = result.Concat(self.GetListExpression(numNodes));
+            return result;
+        });
 
-    public ILargeReadonlyList<GreenLambdaExpression> GetLambdaExpressions(int numNodes) =>
-        _cache.GetExpressions(numNodes - 1)
-        .Select(expr => new GreenLambdaExpression(GreenIdentifierX, GreenDoubleRightArrow, expr));
+        GetFileSyntax = Memoize((self, numNodes) =>
+            from defList in LargeReadonlyList.ArraySum(self.GetDefinitionSyntax)(numNodes)
+            select new GreenFileSyntax(defList, GreenTokenEndOfFile.Instance));
+
+        GetLambdaExpression = Memoize((self, numNodes) =>
+        {
+            if (numNodes >= 2)
+                return self.GetExpressionSyntax(numNodes - 2).Select(expr => new GreenLambdaExpression(GreenIdentifierX, GreenTokenDoubleRightArrow.Instance, expr));
+            else
+                return LargeReadonlyList.Empty<GreenLambdaExpression>();
+        });
+
+        GetVariableExpression = Memoize((self, numNodes) =>
+        {
+            if (numNodes == 1)
+                return AllVariableExpressions;
+            else
+                return LargeReadonlyList.Empty<GreenVariableExpression>();
+        });
+        GetListContentHeadValue = Memoize((self, numNodes) =>
+        {
+            return self.GetExpressionSyntax(numNodes).Select(v => new GreenListContentHeadValue(v));
+        });
+        GetListContentHeadAppend = Memoize((self, numNodes) =>
+        {
+            if (numNodes >= 1)
+                return self.GetExpressionSyntax(numNodes - 1).Select(v => new GreenListContentHeadAppend(v, GreenTokenDots.Instance));
+            else
+                return LargeReadonlyList.Empty<GreenListContentHeadAppend>();
+        });
+        GetListContentHead = Memoize((self, numNodes) =>
+        {
+            var result = LargeReadonlyList.Empty<IGreenListContentHead>();
+            result = result.Concat(self.GetListContentHeadValue(numNodes));
+            result = result.Concat(self.GetListContentHeadAppend(numNodes));
+            return result;
+        });
+        GetListContentTail = Memoize((self, numNodes) =>
+        {
+            if (numNodes >= 1)
+                return self.GetExpressionSyntax(numNodes - 1).Select(expr => new GreenListContentTail(GreenTokenComma.Instance, expr));
+            else
+                return LargeReadonlyList.Empty<GreenListContentTail>();
+        });
+        GetListContent = Memoize((self, numNodes) =>
+        {
+            return LargeReadonlyList.CrossSum(numNodes, self.GetListContentHead, LargeReadonlyList.ArraySum(self.GetListContentTail), (h, r) => new GreenListContent(h, r));
+        });
+        GetListExpression = Memoize((self, numNodes) =>
+        {
+            if (numNodes >= 2)
+                return WithNullable(GetListContent)(numNodes - 2).Select(content => new GreenListExpression(GreenTokenBracketOpen.Instance, content, GreenTokenBracketClose.Instance));
+            else
+                return LargeReadonlyList.Empty<GreenListExpression>();
+        });
+    }
+    private static readonly GreenTokenIdentifier GreenIdentifierX = new("x", null);
+    private static readonly GreenVariableExpression GreenVariableX = new(GreenIdentifierX);
+    private static readonly ILargeReadonlyList<GreenVariableExpression> AllVariableExpressions = LargeReadonlyList.Singleton(GreenVariableX);
+    
+    public readonly Func<int, ILargeReadonlyList<GreenCallExpression>> GetCallExpression;
+    public readonly Func<int, ILargeReadonlyList<GreenDefinitionSyntax>> GetDefinitionSyntax;
+    public readonly Func<int, ILargeReadonlyList<IGreenExpressionSyntax>> GetExpressionSyntax;
+    public readonly Func<int, ILargeReadonlyList<GreenFileSyntax>> GetFileSyntax;
+    public readonly Func<int, ILargeReadonlyList<GreenLambdaExpression>> GetLambdaExpression;
+    public readonly Func<int, ILargeReadonlyList<GreenVariableExpression>> GetVariableExpression;
+    public readonly Func<int, ILargeReadonlyList<GreenListContentHeadValue>> GetListContentHeadValue;
+    public readonly Func<int, ILargeReadonlyList<GreenListContentHeadAppend>> GetListContentHeadAppend;
+    public readonly Func<int, ILargeReadonlyList<IGreenListContentHead>> GetListContentHead;
+    public readonly Func<int, ILargeReadonlyList<GreenListContentTail>> GetListContentTail;
+    public readonly Func<int, ILargeReadonlyList<GreenListContent>> GetListContent;
+    public readonly Func<int, ILargeReadonlyList<GreenListExpression>> GetListExpression;
+
+    private static Func<int, ILargeReadonlyList<T?>> WithNullable<T>(Func<int, ILargeReadonlyList<T>> func) where T:class => numNodes =>
+    {
+        var result = LargeReadonlyList.Empty<T?>();
+        result = result.Concat(GetNull<T>(numNodes));
+        result = result.Concat(func(numNodes));
+        return result;
+    };
 }

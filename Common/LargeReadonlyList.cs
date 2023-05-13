@@ -45,13 +45,26 @@ public static class LargeReadonlyList
     }
     public static ILargeReadonlyList<TResult> CrossSum<TFirst, TSecond, TResult>(
         int sum,
-        IReadOnlyList<ILargeReadonlyList<TFirst>> firsts,
-        IReadOnlyList<ILargeReadonlyList<TSecond>> seconds,
+        Func<int, ILargeReadonlyList<TFirst>> firsts,
+        Func<int, ILargeReadonlyList<TSecond>> seconds,
         Func<TFirst, TSecond, TResult> result)
     {
         return new LargeReadonlyListCrossSum<TFirst, TSecond, TResult>(sum, firsts, seconds, result);
     }
+    public static Func<int, ILargeReadonlyList<ImmutableArray<T>>> ArraySum<T>(Func<int, ILargeReadonlyList<T>> func)
+    {
+        var linkListFunc = FunctionalUtils.MemoizedRecursive(GetArrayLinkListRec(func));
+        return sum => linkListFunc(sum).Select(stack => stack.ToImmutableArray());
+    }
+    private static Func<Func<int, ILargeReadonlyList<ImmutableStack<T>>>, int, ILargeReadonlyList<ImmutableStack<T>>> GetArrayLinkListRec<T>(Func<int, ILargeReadonlyList<T>> func) => (self, sum) =>
+        sum == 0
+        ? SingletonValues<T>.EmptyImmutableStack
+        : CrossSum(sum, func, self, (value, stack) => stack.Push(value));
 
+    private sealed class SingletonValues<T>
+    {
+        public static readonly ILargeReadonlyList<ImmutableStack<T>> EmptyImmutableStack = Singleton(ImmutableStack<T>.Empty);
+    }
     private abstract class ALargeList<T> : ILargeReadonlyList<T>
     {
         public abstract T this[BigInteger id] { get; }
@@ -67,7 +80,7 @@ public static class LargeReadonlyList
     }
     private sealed class LargeReadonlyListEmpty<T> : ALargeList<T>
     {
-        public static readonly LargeReadonlyListEmpty<T> Instance = new LargeReadonlyListEmpty<T>();
+        public static readonly LargeReadonlyListEmpty<T> Instance = new ();
         public override T this[BigInteger id] => throw new ArgumentOutOfRangeException(nameof(id));
         public override BigInteger Count => 0;
     }
@@ -77,7 +90,7 @@ public static class LargeReadonlyList
 
         public LargeReadonlyListSingleton(T value)
         {
-            _value = value ?? throw new ArgumentNullException(nameof(value));
+            _value = value;
         }
 
         public override T this[BigInteger id] => _value;
@@ -133,39 +146,55 @@ public static class LargeReadonlyList
             var quotient = BigInteger.DivRem(id, second.Count, out var remainder);
             return result(first[quotient], second[remainder]);
         }
-            
+
         public override TResult this[BigInteger id] => GetValue(_first, _second, _resultSelector, id);
         public override BigInteger Count { get; }
     }
     private sealed class LargeReadonlyListCrossSum<TFirst, TSecond, TResult> : ALargeList<TResult>
     {
         private readonly int Sum;
-        private readonly IReadOnlyList<ILargeReadonlyList<TFirst>> Firsts;
-        private readonly IReadOnlyList<ILargeReadonlyList<TSecond>> Seconds;
+        private readonly List<ILargeReadonlyList<TFirst>> Firsts;
+        private readonly List<ILargeReadonlyList<TSecond>> Seconds;
         private readonly Func<TFirst, TSecond, TResult> Result;
 
-        public LargeReadonlyListCrossSum(int sum, IReadOnlyList<ILargeReadonlyList<TFirst>> firsts, IReadOnlyList<ILargeReadonlyList<TSecond>> seconds, Func<TFirst, TSecond, TResult> result)
+        public LargeReadonlyListCrossSum(int sum, Func<int, ILargeReadonlyList<TFirst>> firsts, Func<int, ILargeReadonlyList<TSecond>> seconds, Func<TFirst, TSecond, TResult> result)
         {
             Sum = sum;
-            Firsts = firsts;
-            Seconds = seconds;
+            Firsts = new();
+            Seconds = new();
             Result = result ?? throw new ArgumentNullException(nameof(result));
             Count = BigInteger.Zero;
-            for(int i = 0; i <= Sum; ++i)
-                Count += firsts[i].Count * seconds[Sum - i].Count;
+            for (int i = 0; i <= Sum; ++i)
+            {
+                // Only evaluate second if first if diffrent from zero, to allow structures that are infinite recursive in seconds
+                Firsts.Add(firsts(i));
+                var firstCount = Firsts[i].Count;
+                if (firstCount == 0)
+                {
+                    // Any value will do, no one will read it.
+                    Seconds.Add(LargeReadonlyListEmpty<TSecond>.Instance);
+                }
+                else
+                {
+                    Seconds.Add(seconds(Sum - i));
+                    Count += firstCount * Seconds[i].Count;
+                }
+            }
         }
 
         public override TResult this[BigInteger id]
         {
             get
             {
-                BigInteger c = BigInteger.Zero; 
+                BigInteger c = BigInteger.Zero;
                 for (int i = 0; i <= Sum; ++i)
                 {
                     var pc = c;
-                    c += Firsts[i].Count * Seconds[Sum - i].Count;
+                    // Only evaluate second if first if diffrent from zero, to allow structures that are infinite recursive in seconds
+                    var firstCount = Firsts[i].Count;
+                    c += firstCount == 0 ? 0 : firstCount * Seconds[i].Count;
                     if (id < c)
-                        return LargeReadonlyListCross<TFirst, TSecond, TResult>.GetValue(Firsts[i], Seconds[Sum - i], Result, id - pc);
+                        return LargeReadonlyListCross<TFirst, TSecond, TResult>.GetValue(Firsts[i], Seconds[i], Result, id - pc);
                 }
                 throw new ArgumentOutOfRangeException(nameof(id));
             }

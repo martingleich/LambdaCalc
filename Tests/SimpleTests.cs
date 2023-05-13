@@ -7,7 +7,7 @@ public static class StatisicParserTests
     public static void RandomTest()
     {
         var randomExpressions =
-           (from x in ProgramList.CreateInstance().GetStructureLambdaExpressionSyntax(10)
+           (from x in new ProgramList().GetStructureLambdaExpressionSyntax(10)
             select AddRequiredWhitespaceVisitor.Perform(AddRequiredParenthesisVisitor.Perform(x)))
             .AssignRandomNames(Distribution.UniformLowerCaseLetterString);
 
