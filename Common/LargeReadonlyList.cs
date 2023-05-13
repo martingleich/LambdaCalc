@@ -36,9 +36,9 @@ public static class LargeReadonlyList
     {
         if (first.Count.IsZero || second.Count.IsZero)
             return Empty<TResult>();
-        else if (first.Count == 1)
+        else if (first.Count.IsOne)
             return second.Select(s => resultSelector(first[0], s));
-        else if (second.Count == 1)
+        else if (second.Count.IsOne)
             return first.Select(f => resultSelector(f, second[0]));
         else
             return new LargeReadonlyListCross<TFirst, TSecond, TResult>(first, second, resultSelector);
